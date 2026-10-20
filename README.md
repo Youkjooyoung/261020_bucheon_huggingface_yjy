@@ -33,13 +33,14 @@
 | 설명 길이 선택 | **짧게(한 문장)** / **자세히(한 문단: 주제·배경·색·분위기)** |
 | 모델 선택 | 사이드바에서 HF 모델 3종 중 선택 |
 | 한국어 번역 | Groq(`openai/gpt-oss-120b`)가 한국어로 번역. `GROQ_API_KEY`가 없으면 번역만 끔 |
-| 오류 안내 | 토큰 없음·만료, 사용량 초과, 요청 과다 등을 한글로 안내 |
+| 사진 회전 보정 | 스마트폰으로 세로로 찍은 사진도 바른 방향으로 모델에 전달 (EXIF 회전 정보 적용) |
+| 오류 안내 | 토큰 없음·만료, 사용량 초과, 요청 과다, 인터넷 끊김 등을 한글로 안내. 번역만 실패하면 영어 설명은 그대로 보여줌 |
 
 ### 처리 흐름
 
 ```
 ① 이미지 업로드 (app.py)
-     │  hf.to_data_url()     1024px 이하로 줄이고 JPEG → base64 글자로 변환
+     │  hf.to_data_url()     회전 보정 → 1024px 이하로 줄이고 JPEG → base64 글자로 변환
      ▼
 ② Hugging Face Inference API
      │  hf.describe()        영어 프롬프트 + 이미지 → 영어 설명
@@ -107,7 +108,8 @@ pip install -r requirements.txt
 | `huggingface_hub` | HF Inference API 호출 (`InferenceClient`) |
 | `groq` | 한국어 번역 |
 | `python-dotenv` | `.env`에서 키 읽기 |
-| `pillow` | 이미지 크기 줄이기·JPEG 변환 |
+| `pillow` | 이미지 회전 보정·크기 줄이기·JPEG 변환 |
+| `httpx` | 인터넷 연결 오류 구분 (huggingface_hub와 함께 설치됨) |
 
 ---
 
@@ -151,10 +153,18 @@ GROQ_API_KEY=gsk_여기에_본인_키
 ## ▶️ 실행하기
 
 ```bash
+conda activate py311
 streamlit run app.py
 ```
 
-브라우저에서 http://localhost:8501 이 자동으로 열립니다.
+브라우저에서 http://localhost:8501 이 자동으로 열립니다. (안 열리면 주소를 직접 입력)
+
+> 💡 `conda activate`가 안 되면 가상환경의 python으로 바로 실행할 수 있습니다.
+> ```powershell
+> C:\Users\<사용자명>\anaconda3\envs\py311\python.exe -m streamlit run app.py
+> ```
+
+종료하려면 터미널에서 **`Ctrl + C`** 를 누릅니다.
 
 ---
 
@@ -193,6 +203,9 @@ streamlit run app.py
 | `이 모델을 실행해 주는 HF 제공사가 없습니다` | 사이드바에서 다른 모델 선택 |
 | `모델이 빈 답변을 보냈습니다` | 다시 시도하거나 다른 모델 선택 |
 | 번역 토글이 꺼져서 안 켜짐 | `.env`에 `GROQ_API_KEY`를 넣고 앱 재시작 |
+| `번역 실패 : ...` (영어 설명은 나옴) | 안내 문구대로 Groq 키 확인 또는 잠시 후 다시 시도 |
+| `서버에 연결할 수 없습니다` | 인터넷 연결 확인 |
+| `이미지 파일을 읽을 수 없습니다` | 손상되지 않은 JPG / PNG / WEBP 파일로 다시 올리기 |
 | 터미널 한글이 깨짐 (Windows) | PowerShell에서 `[Console]::OutputEncoding = [Text.Encoding]::UTF8` 실행 후 다시 실행 |
 
 ---

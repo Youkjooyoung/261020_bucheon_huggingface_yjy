@@ -2,10 +2,11 @@ import base64
 import io
 import os
 
-from groq import Groq
+import groq
+import httpx
 from huggingface_hub import InferenceClient
 from huggingface_hub.errors import HfHubHTTPError
-from PIL import Image
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 
 # 1. 사용할 수 있는 모델
@@ -32,6 +33,7 @@ MAX_SIZE = 1024
 
 # 3. 이미지 -> base64 data URL (API 에 이미지를 글자로 바꿔서 보냄)
 def to_data_url(image):
+    image = ImageOps.exif_transpose(image)  # 폰 사진의 회전 정보(EXIF) 적용 -> 눕혀진 채로 보내지 않음
     image = image.convert("RGB")            # PNG 투명 배경 등은 JPEG 로 저장할 수 없음
     image.thumbnail((MAX_SIZE, MAX_SIZE))   # 비율 유지하며 줄임 (작은 이미지는 그대로)
     buf = io.BytesIO()
@@ -64,7 +66,7 @@ def describe(image_bytes, model, style):
 def translate_ko(text):
     if not os.getenv("GROQ_API_KEY"):
         return None
-    response = Groq().chat.completions.create(     # GROQ_API_KEY 환경변수를 자동으로 읽음
+    response = groq.Groq().chat.completions.create(    # GROQ_API_KEY 환경변수를 자동으로 읽음
         model=GROQ_MODEL,
         reasoning_effort="low",     # 번역은 low 로 충분 -> 빠르고 토큰 절약
         messages=[
@@ -72,11 +74,24 @@ def translate_ko(text):
             {"role": "user", "content": text},
         ],
     )
-    return response.choices[0].message.content.strip()
+    korean = response.choices[0].message.content
+    if not korean:
+        raise RuntimeError("번역 결과가 비어 있습니다. 다시 시도하세요.")
+    return korean.strip()
 
 
 # 6. 오류 -> 한글 안내 메시지
 def error_message(e):
+    if isinstance(e, UnidentifiedImageError):
+        return "이미지 파일을 읽을 수 없습니다. 손상되지 않은 JPG / PNG / WEBP 파일을 올려주세요."
+    if isinstance(e, (httpx.TransportError, groq.APIConnectionError)):
+        return "서버에 연결할 수 없습니다. 인터넷 연결을 확인하세요."
+    if isinstance(e, groq.AuthenticationError):
+        return "GROQ_API_KEY 가 올바르지 않거나 만료됐습니다. https://console.groq.com/keys 에서 새로 발급받으세요."
+    if isinstance(e, groq.RateLimitError):
+        return "Groq 요청이 너무 많습니다. 잠시 후 다시 시도하세요."
+    if isinstance(e, groq.APIStatusError):
+        return f"Groq API 오류 ({e.status_code}) : {e.message}"
     if isinstance(e, HfHubHTTPError) and e.response is not None:
         code = e.response.status_code
         if code == 401:

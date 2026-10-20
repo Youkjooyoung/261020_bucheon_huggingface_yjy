@@ -15,9 +15,12 @@ st.caption("Hugging Face 모델이 이미지를 보고 설명을 써 주고, Gro
 
 
 # 2. 같은 이미지·모델·스타일이면 API 를 다시 부르지 않음 (캐시 -> 토큰 절약)
+#    걸린 시간도 같이 저장 -> 캐시에서 꺼내도 처음 걸린 시간이 보임
 @st.cache_data(show_spinner=False)
 def cached_describe(image_bytes, model, style):
-    return hf.describe(image_bytes, model, style)
+    start = time.time()
+    caption = hf.describe(image_bytes, model, style)
+    return caption, time.time() - start
 
 
 @st.cache_data(show_spinner=False)
@@ -47,27 +50,30 @@ if uploaded is None:
     st.stop()
 
 image_bytes = uploaded.getvalue()
-st.image(image_bytes, caption=uploaded.name, use_container_width=True)
+st.image(image_bytes, caption=uploaded.name, width="stretch")
 
 
 # 5. 설명 생성 -> 결과는 session_state 에 저장 (설정을 바꿔도 화면에 남도록)
 if st.button("설명 생성", type="primary", icon=":material/auto_awesome:"):
+    st.session_state.pop("result", None)
     try:
         with st.spinner(f"{model} 이(가) 이미지를 보는 중..."):
-            start = time.time()
-            caption = cached_describe(image_bytes, model, style)
-            seconds = time.time() - start
+            caption, seconds = cached_describe(image_bytes, model, style)
+    except Exception as e:
+        st.error(hf.error_message(e), icon=":material/error:")
+    else:
+        # 5-1. 번역은 따로 처리 -> 번역이 실패해도 영어 설명은 보여줌
         korean = None
         if translate:
-            with st.spinner("한국어로 번역하는 중..."):
-                korean = cached_translate(caption)
+            try:
+                with st.spinner("한국어로 번역하는 중..."):
+                    korean = cached_translate(caption)
+            except Exception as e:
+                st.warning(f"번역 실패 : {hf.error_message(e)}", icon=":material/translate:")
         st.session_state.result = {
             "file_id": uploaded.file_id, "model": model,
             "caption": caption, "korean": korean, "seconds": seconds,
         }
-    except Exception as e:
-        st.session_state.pop("result", None)
-        st.error(hf.error_message(e), icon=":material/error:")
 
 
 # 6. 결과 보여주기 (지금 올린 이미지의 결과일 때만)
